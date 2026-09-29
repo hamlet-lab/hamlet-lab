@@ -1,0 +1,698 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>잉크 바다의 마지막 문장 — Final Cut / Turn 5</title><style>
+html,body{margin:0;height:100%;background:#100f0d;color:#ded5c4;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}body{display:grid;place-items:center;overflow:hidden}.wrap{width:min(96vw,1320px);display:flex;flex-direction:column;gap:9px}canvas{width:100%;height:auto;aspect-ratio:16/9;background:#e8dcc3;display:block;box-shadow:0 22px 90px #000b,0 0 0 1px #fff1}.bar{display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #fff1;background:#181512;border-radius:10px}.bar button{border:1px solid #ffffff17;background:#28231d;color:#ded5c4;padding:7px 10px;border-radius:7px;font:inherit;cursor:pointer}.bar button:hover{background:#362f27}.bar input{flex:1;min-width:180px;accent-color:#315f82}.meta{display:flex;gap:12px;align-items:center;font-size:11px;opacity:.72;white-space:nowrap}#shot{min-width:205px;text-align:right}@media(max-width:760px){.meta #shot{display:none}.bar{flex-wrap:wrap}.bar input{order:5;flex-basis:100%}}
+</style></head><body><div class="wrap"><canvas id="c" width="1280" height="720"></canvas><div class="bar"><button id="play">▶ PLAY</button><button id="mute">🔊 SOUND</button><button id="full">⛶ FULL</button><input id="scrub" type="range" min="0" max="32" step="0.001" value="0"><div class="meta"><span id="time">0.0 / 32.0s</span><span id="shot">SHOT 01</span><span>TURN 5 · FINAL CUT</span></div></div></div><script>
+(()=>{
+'use strict';
+const c=document.getElementById('c'), ctx=c.getContext('2d');
+const W=c.width,H=c.height,TAU=Math.PI*2;
+const COLORS={paper:'#e8ddc5',paper2:'#d7c6a7',ink:'#151616',ink2:'#252625',blue:'#214d73',blue2:'#5b89a5',sepia:'#735f45',scar:'#bea98b'};
+const SHOTS=['01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','17','18'];
+const DURS={'01':1.5,'02':1.5,'03':1.5,'04':1.5,'05':1.5,'06':1.5,'07':1.5,'08':1.5,'09':1.5,'10':1.5,'11':1.5,'12':1.5,'13':1.5,'14':1.5,'15':1.5,'16':2.0,'17':3.0,'18':4.5};
+let selected='01',localP=0,playStart=0;
+const shotLabels={'01':'unfinished sentence','02':'the bead wakes','03':'the cobalt clue','04':'running through type','05':'punctuation stones','06':'cobalt puddle','07':'page cliff','08':'beneath the paper','09':'comma boat','10':'torn whirlpool','11':'spine canyon','12':'the dry scar','13':'understanding','14':'capillary return','15':'back at the sentence','16':'not enough ink','17':'become the stroke','18':'cobalt capillary bloom'};
+
+// ---------- deterministic helpers ----------
+function hash(n){let x=Math.sin(n*127.1+311.7)*43758.5453123;return x-Math.floor(x)}
+function mix(a,b,t){return a+(b-a)*t}
+function clamp(x,a=0,b=1){return Math.max(a,Math.min(b,x))}
+function ss(t){return t*t*(3-2*t)}
+function easeOut(t){return 1-Math.pow(1-clamp(t),3)}
+function easeInOut(t){t=clamp(t);return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2}
+function remap(x,a,b,c=0,d=1){return c+(d-c)*clamp((x-a)/(b-a))}
+function rgba(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r)}
+function poly(points){ctx.beginPath();ctx.moveTo(points[0][0],points[0][1]);for(let i=1;i<points.length;i++)ctx.lineTo(points[i][0],points[i][1]);ctx.closePath()}
+function ellipse(x,y,rx,ry,rot=0){ctx.beginPath();ctx.ellipse(x,y,rx,ry,rot,0,TAU)}
+
+// ---------- paper / print language ----------
+let paperPattern=null;
+function makePaper(){
+  const o=document.createElement('canvas');o.width=640;o.height=360;const g=o.getContext('2d');
+  let grd=g.createLinearGradient(0,0,640,360);grd.addColorStop(0,'#eee4d1');grd.addColorStop(.48,'#e4d7bd');grd.addColorStop(1,'#d8c7a8');g.fillStyle=grd;g.fillRect(0,0,640,360);
+  for(let i=0;i<3200;i++){
+    const x=hash(i*3.11)*640,y=hash(i*7.31+4)*360,ang=(hash(i*11.9)-.5)*.5,len=2+hash(i*2.7)*19;
+    g.strokeStyle=hash(i+9)>.5?'rgba(86,69,45,.055)':'rgba(255,255,255,.08)';g.lineWidth=.3+hash(i+3)*.65;
+    g.beginPath();g.moveTo(x,y);g.lineTo(x+Math.cos(ang)*len,y+Math.sin(ang)*len);g.stroke();
+  }
+  for(let i=0;i<95;i++){
+    const x=hash(i*19.1)*640,y=hash(i*23.7)*360,r=1+hash(i*5.4)*13;
+    const q=g.createRadialGradient(x,y,0,x,y,r);q.addColorStop(0,'rgba(104,72,36,.08)');q.addColorStop(1,'rgba(104,72,36,0)');g.fillStyle=q;g.fillRect(x-r,y-r,r*2,r*2);
+  }
+  paperPattern=ctx.createPattern(o,'repeat');
+}
+makePaper();
+function paperBase(warm=0){
+  ctx.save();ctx.fillStyle=paperPattern;ctx.fillRect(0,0,W,H);
+  const vign=ctx.createRadialGradient(W*.52,H*.46,90,W*.52,H*.46,760);vign.addColorStop(0,'rgba(255,250,232,.08)');vign.addColorStop(1,'rgba(63,48,31,.23)');ctx.fillStyle=vign;ctx.fillRect(0,0,W,H);
+  if(warm){ctx.fillStyle=`rgba(163,132,84,${warm*.08})`;ctx.fillRect(0,0,W,H)}
+  ctx.restore();
+}
+function paperFiberOverlay(alpha=.12,scale=1){
+  ctx.save();ctx.globalAlpha=alpha;ctx.strokeStyle='#705d43';ctx.lineCap='round';
+  for(let i=0;i<150;i++){
+    const y=(hash(i*9.71)*H),x=hash(i*7.13)*W,len=(40+hash(i*4.7)*220)*scale;
+    ctx.lineWidth=.3+hash(i+1)*.8;ctx.beginPath();ctx.moveTo(x,y);ctx.bezierCurveTo(x+len*.25,y+(hash(i+5)-.5)*8,x+len*.65,y+(hash(i+8)-.5)*10,x+len,y+(hash(i+2)-.5)*6);ctx.stroke();
+  }ctx.restore();
+}
+function roughStroke(points,width=12,color=COLORS.ink,alpha=1,seed=1){
+  ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
+  for(let k=0;k<5;k++){
+    ctx.strokeStyle=rgba(color,alpha*(k===0?.42:.13));ctx.lineWidth=width*(1+(hash(seed+k)-.5)*.16);
+    ctx.beginPath();for(let i=0;i<points.length;i++){
+      const jx=(hash(seed*91+k*17+i*13)-.5)*width*.18,jy=(hash(seed*61+k*11+i*19)-.5)*width*.15;
+      const p=points[i]; if(i===0)ctx.moveTo(p[0]+jx,p[1]+jy);else ctx.lineTo(p[0]+jx,p[1]+jy);
+    }ctx.stroke();
+  }
+  // dry edges
+  ctx.globalAlpha=.25*alpha;ctx.strokeStyle='#030404';ctx.lineWidth=Math.max(1,width*.08);ctx.setLineDash([1,3+hash(seed)*4]);ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.stroke();ctx.restore();
+}
+function brushCurve(x1,y1,cx1,cy1,cx2,cy2,x2,y2,width=14,color=COLORS.ink,alpha=1,seed=1){
+  ctx.save();ctx.lineCap='round';
+  for(let k=0;k<6;k++){
+    const off=(k-2.5)*width*.018;
+    ctx.beginPath();ctx.moveTo(x1,y1+off);ctx.bezierCurveTo(cx1,cy1+off,cx2,cy2-off,x2,y2);ctx.strokeStyle=rgba(color,alpha*(k===2?.3:.11));ctx.lineWidth=width*(.88+hash(seed+k)*.18);ctx.stroke();
+  }ctx.restore();
+}
+function pseudoGlyph(x,y,s,seed,alpha=.93,rot=0){
+  ctx.save();ctx.translate(x,y);ctx.rotate(rot);ctx.scale(s,s);ctx.globalAlpha=alpha;
+  const type=Math.floor(hash(seed*1.37)*6), flip=hash(seed+8)>.5?1:-1;
+  // faint letterpress halo: old ink compressing paper around the character
+  ctx.save();ctx.globalAlpha=.055;ctx.strokeStyle='#4f3e2a';ctx.lineWidth=12;ctx.lineCap='round';
+  if(type===0){ctx.beginPath();ctx.moveTo(-28,38);ctx.lineTo(-24,-36);ctx.moveTo(-22,-18);ctx.lineTo(26,-26);ctx.stroke()}
+  else if(type===1){ctx.beginPath();ctx.moveTo(-30,36);ctx.lineTo(-26,-34);ctx.moveTo(-25,-26);ctx.quadraticCurveTo(8,-38,26,-9);ctx.quadraticCurveTo(12,10,-19,7);ctx.stroke()}
+  else if(type===2){ctx.beginPath();ctx.moveTo(-29,38);ctx.lineTo(-25,-36);ctx.moveTo(-22,4);ctx.quadraticCurveTo(3,-10,28,8);ctx.moveTo(7,-21);ctx.lineTo(8,34);ctx.stroke()}
+  else if(type===3){ctx.beginPath();ctx.moveTo(-30,37);ctx.lineTo(-26,-36);ctx.moveTo(-23,-29);ctx.quadraticCurveTo(8,-31,22,-12);ctx.moveTo(-21,7);ctx.lineTo(25,3);ctx.stroke()}
+  else if(type===4){ctx.beginPath();ctx.moveTo(-30,37);ctx.lineTo(-25,-34);ctx.moveTo(-22,-10);ctx.lineTo(25,22);ctx.moveTo(9,-29);ctx.lineTo(10,34);ctx.stroke()}
+  else {ctx.beginPath();ctx.moveTo(-30,37);ctx.lineTo(-26,-35);ctx.moveTo(-22,-27);ctx.quadraticCurveTo(11,-35,27,-8);ctx.moveTo(-19,16);ctx.quadraticCurveTo(7,5,26,24);ctx.stroke()}
+  ctx.restore();
+  // main press strokes; variants deliberately asymmetric so a paragraph feels typeset, not tiled.
+  roughStroke([[-30,40],[-26,-38]],8.7,COLORS.ink,1,seed+1);
+  if(type===0){roughStroke([[-24,-23],[19,-29],[29,-7]],6.6,COLORS.ink,.95,seed+2);roughStroke([[-18,10],[22,7]],5.4,COLORS.ink,.86,seed+3)}
+  if(type===1){brushCurve(-25,-25,-3,-39,19,-31,28,-8,6.8,COLORS.ink,.96,seed+3);brushCurve(27,-8,17,9,0,12,-20,7,5.6,COLORS.ink,.88,seed+4)}
+  if(type===2){brushCurve(-21,3,-4,-11,15,-3,28,10,5.8,COLORS.ink,.9,seed+5);roughStroke([[8,-27],[9,34]],6.8,COLORS.ink,.92,seed+6)}
+  if(type===3){roughStroke([[-22,-29],[14,-30],[27,-12]],6.2,COLORS.ink,.93,seed+7);roughStroke([[-19,8],[26,4]],5.3,COLORS.ink,.86,seed+8)}
+  if(type===4){roughStroke([[-20,-11],[25*flip,20]],6.3,COLORS.ink,.92,seed+9);roughStroke([[10,-29],[11,34]],6.2,COLORS.ink,.9,seed+10)}
+  if(type===5){brushCurve(-21,-26,-2,-38,18,-29,27,-8,6.3,COLORS.ink,.93,seed+11);brushCurve(-18,17,-2,7,12,10,28,25,5.4,COLORS.ink,.85,seed+12)}
+  // little worn terminals / diacritics make close frames reward inspection
+  if(hash(seed+40)>.58){ctx.fillStyle=rgba(COLORS.ink,.76);ellipse(21*flip,-38,2.2+hash(seed)*1.5,1.5,.1);ctx.fill()}
+  if(hash(seed+41)>.72){roughStroke([[-18,37],[27*flip,35]],4.2,COLORS.ink,.78,seed+13)}
+  ctx.restore();
+}
+function textLandscape(offset=0,depth=1,alpha=.93){
+  const baseY=465;const scale=depth; const gap=88*scale;
+  for(let i=-2;i<18;i++){
+    const x=(i*gap - offset%(gap))+20;
+    pseudoGlyph(x,baseY+(hash(i+31)-.5)*18*scale,scale*.95,i+100,alpha,(hash(i+71)-.5)*.03);
+  }
+  // baseline shadow / old press residue
+  ctx.save();ctx.globalAlpha=.08;ctx.fillStyle='#2c241a';ctx.fillRect(0,baseY+49*scale,W,2);ctx.restore();
+}
+function cobaltTrace(points,width=5,a=.6){
+  ctx.save();ctx.globalCompositeOperation='multiply';
+  brushCurve(points[0],points[1],points[2],points[3],points[4],points[5],points[6],points[7],width,COLORS.blue,a,77);
+  ctx.restore();
+}
+
+// ---------- character ----------
+function inkPerson(x,y,s,pose={}){
+  const phase=pose.phase||0,run=pose.run||0,lean=pose.lean||0,alpha=pose.alpha??1,blue=pose.blue||0,flatten=pose.flatten||0,small=pose.small||0;
+  ctx.save();ctx.translate(x,y);ctx.scale(s*(1-small*.28),s*(1-small*.28));ctx.rotate(lean);ctx.globalAlpha=alpha;
+  if(flatten>0){
+    const f=clamp(flatten);ctx.globalCompositeOperation='multiply';
+    const bodyW=mix(20,170,f),bodyH=mix(50,7,f);
+    ctx.fillStyle=COLORS.ink;ellipse(0,mix(-22,5,f),bodyW,bodyH,-.02);ctx.fill();
+    ctx.fillStyle=rgba(COLORS.blue,.18*f);ellipse(bodyW*.15,5,bodyW*.72,bodyH*.58,0);ctx.fill();
+    // capillary fingers along the dissolving edge
+    if(f>.45){for(let i=0;i<5;i++){const q=remap(f,.45,1),xx=-40+i*25;ctx.strokeStyle=`rgba(18,20,20,${.18*q})`;ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(xx,7);ctx.quadraticCurveTo(xx+18,12+hash(i)*8,xx+42*q,8+(i%2)*4);ctx.stroke()}}
+    ctx.restore();return;
+  }
+  const bob=Math.sin(phase*TAU)*2.6*run;
+  const legA=Math.sin(phase*TAU)*.86*run,legB=-legA;
+  const armA=Math.sin(phase*TAU+Math.PI)*.76*run,armB=-armA;
+  // soft wet stain beneath, offset from body like ink soaking through paper
+  ctx.fillStyle='rgba(38,31,24,.095)';ellipse(2,29,20+run*4,4.5,0);ctx.fill();
+  // trailing surface-tension fringe
+  ctx.strokeStyle='rgba(16,18,18,.28)';ctx.lineWidth=1.4;for(let i=0;i<3;i++){ctx.beginPath();ctx.moveTo(-7+i*7,17);ctx.quadraticCurveTo(-15+i*8,24+hash(i+3)*7,-9+i*7,31);ctx.stroke()}
+  // torso as a slightly unstable droplet rather than a rigid oval
+  ctx.beginPath();ctx.moveTo(-13,-18+bob);ctx.bezierCurveTo(-18,-6,-17,12,-9,24);ctx.bezierCurveTo(-2,33,13,24,15,7);ctx.bezierCurveTo(17,-7,10,-19,-1,-23);ctx.bezierCurveTo(-7,-26,-12,-22,-13,-18);ctx.closePath();
+  const g=ctx.createLinearGradient(-18,-22,18,28);g.addColorStop(0,'#0b0d0d');g.addColorStop(.48,'#191b1b');g.addColorStop(.82,'#111313');g.addColorStop(1,'#050606');ctx.fillStyle=g;ctx.fill();
+  // edge bleed + wet specular
+  ctx.strokeStyle='rgba(3,5,5,.38)';ctx.lineWidth=1.1;ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,246,.18)';ctx.lineWidth=2.2;ctx.beginPath();ctx.moveTo(-7,-15+bob);ctx.bezierCurveTo(-12,-4,-9,9,-6,13);ctx.stroke();
+  if(blue>0){ctx.fillStyle=rgba(COLORS.blue2,.46*blue);ellipse(6,3,4+blue*2,8+blue*3,-.22);ctx.fill();ctx.fillStyle=rgba('#a9c0cb',.16*blue);ellipse(5,-1,1.3,3,-.2);ctx.fill()}
+  // head slightly pear-shaped; a separate droplet neck makes the silhouette less icon-like
+  ctx.fillStyle='#101212';ctx.beginPath();ctx.moveTo(-8,-41+bob);ctx.bezierCurveTo(-11,-34,-9,-25,-1,-22);ctx.bezierCurveTo(7,-23,11,-31,8,-39);ctx.bezierCurveTo(5,-46,-4,-47,-8,-41);ctx.closePath();ctx.fill();
+  ctx.fillStyle='rgba(255,255,245,.16)';ellipse(-3.5,-40+bob,2.3,3.5,-.3);ctx.fill();
+  ctx.fillStyle='rgba(20,22,22,.82)';ellipse(0,-24+bob,4.2,3.1,0);ctx.fill();
+  // limbs with elbow/knee joints and tiny pooling feet/hands
+  function limb(x1,y1,ang,len,w,seed,knee=.55){
+    const ex=x1+Math.sin(ang)*len,ey=y1+Math.cos(ang)*len;
+    const mx=mix(x1,ex,knee)+Math.sin(ang+1.4)*len*.10, my=mix(y1,ey,knee)+Math.cos(ang+1.4)*len*.10;
+    brushCurve(x1,y1,mix(x1,mx,.6),mix(y1,my,.6),mix(mx,ex,.45),mix(my,ey,.45),ex,ey,w,COLORS.ink,.96,seed);
+    ctx.fillStyle='rgba(14,16,16,.9)';ellipse(mx,my,w*.62,w*.50,0);ctx.fill();
+    ctx.fillStyle='rgba(14,16,16,.82)';ellipse(ex,ey,w*.74,w*.38,ang*.2);ctx.fill();
+    return[ex,ey]
+  }
+  limb(-5,20,legA,27,5.1,51,.52);limb(6,20,legB,27,5.1,52,.48);
+  limb(-10,-8,armA,24,4.4,53,.50);limb(10,-7,armB,24,4.4,54,.55);
+  if(run>.2){for(let i=0;i<3;i++){const dx=-23-i*16,dy=33+(hash(i+phase*10)-.5)*4;ctx.fillStyle='rgba(20,22,22,.15)';ellipse(dx,dy,5-i*.9,2.2,0);ctx.fill()}}
+  ctx.restore();
+}
+function dust(x,y,p,seed=1,color='#7d6749'){
+  ctx.save();for(let i=0;i<36;i++){const a=hash(seed+i)*TAU,r=(8+hash(seed+i*3)*46)*p,sz=.4+hash(seed+i*7)*1.8;ctx.globalAlpha=(1-p)*.36;ctx.fillStyle=color;ctx.fillRect(x+Math.cos(a)*r,y+Math.sin(a)*r,sz,sz)}ctx.restore();
+}
+
+// ---------- shot 01 ----------
+function shot01(p){
+  paperBase(); paperFiberOverlay(.12);
+  const cam=easeInOut(p)*74; ctx.save();ctx.translate(-cam,0);
+  // page curl creates a physical world, not a flat canvas
+  const curl=ctx.createLinearGradient(0,70,0,250);curl.addColorStop(0,'rgba(74,55,34,.05)');curl.addColorStop(.5,'rgba(255,255,246,.10)');curl.addColorStop(1,'rgba(74,55,34,0)');ctx.fillStyle=curl;ctx.fillRect(0,70,1360,200);
+  // out-of-focus upper lines
+  ctx.save();ctx.filter='blur(1.4px)';ctx.globalAlpha=.18;for(let row=0;row<3;row++){for(let i=0;i<11;i++)pseudoGlyph(58+i*112,160+row*92,.43,i+row*50,.72,(hash(i+row)-.5)*.025)}ctx.restore();ctx.filter='none';
+  // main line: uneven press and spacing are intentional
+  for(let i=0;i<8;i++){const sc=.82+hash(i+19)*.12; pseudoGlyph(86+i*118,470+(hash(i+5)-.5)*4,sc,i+201,.97,(hash(i+901)-.5)*.024)}
+  // one oversized foreground letter enters frame edge for depth
+  ctx.save();ctx.globalAlpha=.12;ctx.filter='blur(2px)';pseudoGlyph(-40,620,2.4,78,.8,-.06);ctx.restore();ctx.filter='none';
+  // incomplete terminal + tactile dry scar continuation
+  roughStroke([[1012,476],[1060,471],[1092,462]],12.5,COLORS.ink,.96,401);
+  for(let k=0;k<4;k++){ctx.beginPath();ctx.moveTo(1097,459+k*1.5);ctx.bezierCurveTo(1145,452,1194,466,1288,447+k*.7);ctx.strokeStyle=k<2?'rgba(255,249,231,.28)':'rgba(112,88,58,.24)';ctx.lineWidth=k<2?1.2:.75;ctx.stroke()}
+  // protagonist is born from a bead, not yet fully humanoid
+  const q=ss(remap(p,.50,.97)); const bx=1084,by=500;
+  ctx.save();ctx.globalCompositeOperation='multiply';const rg=ctx.createRadialGradient(bx-3,by-5,1,bx,by,18+q*4);rg.addColorStop(0,'rgba(8,10,10,.98)');rg.addColorStop(.70,'rgba(18,20,20,.88)');rg.addColorStop(1,'rgba(18,20,20,.04)');ctx.fillStyle=rg;ellipse(bx,by,14+q*3,8+q*6,-.05);ctx.fill();ctx.restore();
+  if(q>.58){const spr=remap(q,.58,1);ctx.strokeStyle=`rgba(12,14,14,${.5*spr})`;ctx.lineWidth=2.4;ctx.beginPath();ctx.moveTo(bx-5,by-3);ctx.quadraticCurveTo(bx-14,by-17,bx-11,by-24*spr);ctx.moveTo(bx+4,by-2);ctx.quadraticCurveTo(bx+12,by-15,bx+9,by-22*spr);ctx.stroke()}
+  ctx.fillStyle=`rgba(255,255,248,${.17+q*.08})`;ellipse(bx-4,by-5,3.1,1.8,-.2);ctx.fill();
+  ctx.restore();
+  // near-lens paper fiber and a soft shadow from page above
+  ctx.save();ctx.globalAlpha=.10;ctx.strokeStyle='#6e5638';ctx.lineWidth=4;ctx.filter='blur(1px)';ctx.beginPath();ctx.moveTo(-30,658);ctx.bezierCurveTo(260,610,555,700,930,650);ctx.stroke();ctx.restore();ctx.filter='none';
+}
+// ---------- shot 04 ----------
+function shot04(p){
+  paperBase();
+  const speed=900, off=p*speed, horizon=475;
+  // far paragraph, slight page curvature
+  ctx.save();ctx.globalAlpha=.14;ctx.translate(-(off*.18)%120,0);ctx.transform(1,0,-.03,1,0,0);for(let i=-2;i<15;i++)pseudoGlyph(i*118,240+(i%3)*11,.62,i+330,.78,(hash(i+99)-.5)*.05);ctx.restore();
+  // monumental middle letters. Their strokes read as architecture and occlude the runner.
+  ctx.save();ctx.translate(-(off*.68)%190,0);for(let i=-2;i<10;i++){const x=i*190+65,sc=1.45+hash(i+6)*.30;ctx.save();ctx.translate(x,horizon);ctx.scale(sc,sc);pseudoGlyph(0,0,1,i+400,.82,(hash(i+33)-.5)*.025);ctx.restore()}ctx.restore();
+  // thin baseline pools catch reflections
+  ctx.fillStyle='rgba(30,29,24,.055)';ctx.fillRect(0,520,W,9);
+  // cobalt clue underfoot
+  cobaltTrace([40,526,330,510,800,542,1270,505],6,.36);
+  // protagonist, larger and lower; the world cuts in front of it
+  inkPerson(675,485,1.85,{run:1,phase:p*4.45,lean:-.22,blue:.30});
+  // ink droplets lag according to inertia
+  ctx.save();ctx.globalCompositeOperation='multiply';for(let i=0;i<14;i++){const age=(p*14+i*.13)%1,x=650-age*300,y=531-Math.sin(age*Math.PI)*34+hash(i)*11;ctx.fillStyle=`rgba(18,19,19,${.24*(1-age)})`;ellipse(x,y,2.1+age*2.4,1.5+age,0);ctx.fill()}ctx.restore();
+  // foreground strokes race past faster and intermittently hide the body: true depth, not decoration
+  ctx.save();ctx.translate(-(off*1.27)%350,0);for(let i=-2;i<7;i++){const x=i*350+95,kind=i%3;ctx.globalAlpha=.77;ctx.filter='blur(.35px)';roughStroke([[x,70],[x+22,690]],46,COLORS.ink,.62,i+501);if(kind===0)roughStroke([[x-70,330],[x+205,297]],32,COLORS.ink,.58,i+522);if(kind===1)brushCurve(x-35,180,x+10,125,x+115,172,x+178,250,28,COLORS.ink,.50,i+530)}ctx.restore();ctx.filter='none';
+  // dust of dry press flakes lifted by running feet
+  ctx.save();for(let i=0;i<22;i++){const a=(hash(i+91)-.5)*1.2,r=(20+hash(i+7)*100),x=640-r*remap((p*1.7+i*.06)%1,0,1),y=530-Math.abs(Math.sin(a))*r*.35;ctx.globalAlpha=.13;ctx.fillStyle='#766044';ctx.fillRect(x,y,1+hash(i)*1.8,1+hash(i+4)*1.3)}ctx.restore();
+}
+// ---------- shot 08 ----------
+function fiberBranch(x,y,len,ang,depth,seed,bend=0){
+  if(depth<=0||len<6)return; const ex=x+Math.cos(ang+bend)*len,ey=y+Math.sin(ang+bend)*len;
+  ctx.strokeStyle=`rgba(112,86,56,${.11+depth*.035})`;ctx.lineWidth=.45+depth*.34;ctx.beginPath();ctx.moveTo(x,y);ctx.bezierCurveTo(mix(x,ex,.35),y+(hash(seed)-.5)*10,mix(x,ex,.72),ey+(hash(seed+2)-.5)*8,ex,ey);ctx.stroke();
+  if(depth>1){fiberBranch(ex,ey,len*.62,ang+(hash(seed+3)-.5)*1.15,depth-1,seed+11,bend*.6);if(hash(seed+5)>.28)fiberBranch(ex,ey,len*.46,ang+(hash(seed+7)-.5)*1.35,depth-1,seed+23,-bend*.3)}
+}
+function shot08(p){
+  const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#d3c4a4');bg.addColorStop(.15,'#9c8a70');bg.addColorStop(.36,'#514b41');bg.addColorStop(1,'#141719');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  // translucent page ceiling: printed marks above become enormous shadows below
+  ctx.save();ctx.globalAlpha=.21;ctx.filter='blur(2px)';ctx.transform(1,0,-.10,1,0,0);for(let i=0;i<12;i++)pseudoGlyph(-20+i*125,120+(i%2)*8,.92,i+611,.72,0);ctx.restore();ctx.filter='none';
+  const l=ctx.createRadialGradient(620,65,8,620,80,520);l.addColorStop(0,'rgba(247,233,198,.36)');l.addColorStop(.52,'rgba(218,201,167,.12)');l.addColorStop(1,'rgba(218,201,167,0)');ctx.fillStyle=l;ctx.fillRect(70,0,1120,560);
+  const cx=140+p*980,cy=472-Math.sin(p*Math.PI)*38;
+  // a dense fibrous tunnel. nearby fibers bend and separate as the wet body passes.
+  ctx.save();for(let i=0;i<145;i++){
+    const x=hash(i*5.3)*W,y=120+hash(i*8.1)*540,len=45+hash(i*2.2)*145,ang=.15+(hash(i*4.1)-.5)*2.5;
+    const d=Math.hypot(x-cx,y-cy);const bend=d<145?((x<cx?-1:1)*(1-d/145)*.42):0;fiberBranch(x,y,len,ang,3,i+700,bend);
+  }ctx.restore();
+  // thick torn fibers at mid depth make the tunnel legible even as a thumbnail
+  ctx.save();ctx.lineCap='round';for(let i=0;i<22;i++){
+    const x=hash(i*17.3)*W,y=155+hash(i*13.9)*500;const d=Math.hypot(x-cx,y-cy),push=d<130?(x<cx?-48:48)*(1-d/130):0;
+    ctx.strokeStyle=`rgba(145,112,72,${.17+hash(i)*.10})`;ctx.lineWidth=1.5+hash(i+9)*2.4;ctx.beginPath();ctx.moveTo(x,y);ctx.bezierCurveTo(x+30+push,y+55,x-20+push,y+115,x+15+push,y+175);ctx.stroke();
+  }ctx.restore();
+  // protagonist is now close enough that wet highlights and deforming limbs are visible
+  ctx.save();const halo=ctx.createRadialGradient(cx,cy-18,8,cx,cy-18,155);halo.addColorStop(0,'rgba(235,220,186,.16)');halo.addColorStop(1,'rgba(235,220,186,0)');ctx.fillStyle=halo;ctx.fillRect(cx-180,cy-190,360,360);ctx.restore();
+  inkPerson(cx,cy,1.98,{run:.42,phase:p*2.6,lean:.16*Math.sin(p*TAU),blue:.50});
+  ctx.strokeStyle='rgba(220,207,177,.18)';ctx.lineWidth=1.4;ctx.beginPath();ctx.arc(cx,cy-22,36,-2.4,-.6);ctx.stroke();
+  // strands stick to and peel off the body, giving contact with the environment
+  ctx.strokeStyle='rgba(30,31,29,.32)';ctx.lineWidth=2;for(let i=0;i<5;i++){const a=p*TAU+i;ctx.beginPath();ctx.moveTo(cx-13+i*6,cy-47);ctx.quadraticCurveTo(cx+(i-2)*17,cy-78-Math.sin(a)*19,cx+(i-2)*25,cy-110);ctx.stroke()}
+  // extreme foreground threads cross the lens at a different speed
+  ctx.save();ctx.globalAlpha=.38;ctx.lineWidth=7;ctx.strokeStyle='#856b4c';ctx.filter='blur(.8px)';for(let i=0;i<7;i++){const x=(i*215+40-(p*135)%215);ctx.beginPath();ctx.moveTo(x,-30);ctx.bezierCurveTo(x+135,180,x-110,430,x+95,770);ctx.stroke()}ctx.restore();ctx.filter='none';
+}
+// ---------- shot 12 ----------
+function shot12(p){
+  // Truth reveal: no full figure. The whole shot is fingertip + paper wound + dead pigment.
+  paperBase(.10);paperFiberOverlay(.20,1.35);
+  // Macro rake: fibers have direction and cast tiny shadows.
+  ctx.save();ctx.globalAlpha=.24;for(let i=0;i<760;i++){const x=hash(i*12.3)*W,y=hash(i*4.9)*H,ang=-.08+(hash(i*3.7)-.5)*.34,len=10+hash(i*9.1)*118;ctx.strokeStyle=hash(i+7)>.55?'rgba(104,79,49,.42)':'rgba(255,249,230,.24)';ctx.lineWidth=.35+hash(i+2)*1.55;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+Math.cos(ang)*len,y+Math.sin(ang)*len);ctx.stroke()}ctx.restore();
+
+  // Dry nib wound dominates the upper half: a furrow with lifted pulp on both lips.
+  const gy=300;for(let k=0;k<18;k++){
+    const off=(k-8.5)*1.25;ctx.beginPath();ctx.moveTo(-20,gy+off);ctx.bezierCurveTo(285,gy-58+off*.55,720,gy+38-off*.18,1320,gy-42+off*.42);
+    ctx.strokeStyle=k<7?'rgba(255,249,229,.42)':k<12?'rgba(118,91,58,.34)':'rgba(73,58,41,.18)';ctx.lineWidth=k<7?1.7:k<12?1.05:.7;ctx.stroke();
+  }
+  // torn pulp stands up around the scar
+  for(let i=0;i<105;i++){const x=190+hash(i*7)*1060,yy=gy+(hash(i*5)-.5)*32,dir=(hash(i+8)-.5);ctx.strokeStyle=`rgba(112,85,55,${.18+hash(i)*.12})`;ctx.lineWidth=.55+hash(i)*.65;ctx.beginPath();ctx.moveTo(x,yy);ctx.quadraticCurveTo(x+dir*8,yy-7,x+dir*(15+hash(i+4)*24),yy-(10+hash(i+6)*26));ctx.stroke()}
+
+  // The cobalt clue literally runs out before the wound.
+  ctx.save();ctx.globalCompositeOperation='multiply';const fade=1-ss(remap(p,.18,.82));brushCurve(-30,412,130,400,235,384,335,365,5.2,COLORS.blue,.30*fade,1201);for(let i=0;i<8;i++){ctx.fillStyle=`rgba(45,86,119,${(.20-i*.02)*fade})`;ellipse(350+i*17,361-i*3,8-i*.55,2.6-i*.18,-.12);ctx.fill()}ctx.restore();
+
+  // A huge wet forearm enters from lower-left. The fingertip alone tests the groove.
+  const approach=easeOut(remap(p,.03,.52)),touch=ss(remap(p,.43,.73)),realize=ss(remap(p,.66,.98));
+  const fx=mix(395,585,approach),fy=mix(525,337,approach);
+  brushCurve(-80,690,80,640,235,560,fx-48,fy+18,46,COLORS.ink,.98,1210);
+  // knuckle pooling and specular describe a liquid hand rather than a stick arm
+  ctx.fillStyle='#0f1111';ellipse(fx-40,fy+15,51,31,-.34);ctx.fill();ctx.fillStyle='rgba(255,255,244,.13)';ellipse(fx-53,fy+2,17,6,-.28);ctx.fill();
+  // finger compresses against the scar and flattens at contact
+  const fw=26+touch*15,fh=10-touch*4;ctx.fillStyle='#0e1010';ellipse(fx+5,fy,fw,fh,-.10);ctx.fill();
+  ctx.fillStyle='rgba(255,255,244,.17)';ellipse(fx-2,fy-4,9,2.4,-.12);ctx.fill();
+  // a tiny amount of black ink tries to enter the dry groove and stops abruptly
+  if(touch>0){brushCurve(fx+16,fy,fx+42,fy-4,fx+55,fy-3,fx+68,fy-5,2.6,COLORS.ink,.42*touch,1212)}
+  // raking light blooms only after touch, revealing that this is damage, not a missing ink line
+  const rake=touch*(1-ss(remap(p,.90,1)));const gl=ctx.createLinearGradient(410,250,1050,360);gl.addColorStop(0,'rgba(255,251,232,0)');gl.addColorStop(.44,`rgba(255,251,232,${.14*rake})`);gl.addColorStop(.62,`rgba(255,251,232,${.28*rake})`);gl.addColorStop(1,'rgba(255,251,232,0)');ctx.fillStyle=gl;ctx.fillRect(250,180,900,270);
+  // realization lifts dry pulp dust instead of producing a magical glow
+  if(realize>0){for(let i=0;i<42;i++){const a=hash(i)*TAU,r=(10+hash(i+2)*72)*realize;ctx.fillStyle=`rgba(120,96,65,${.24*(1-realize*.65)})`;ctx.fillRect(fx+20+Math.cos(a)*r,fy-4+Math.sin(a)*r*.32,1+hash(i)*1.6,1+hash(i+5)*1.4)}}
+}
+// ---------- shot 17 ----------
+function bodyLiquefy(x,y,p){
+  const f=easeInOut(clamp(p));
+  // Sequential dissolution: feet feed the line first, then legs, torso, arms, and head last.
+  const feet=ss(remap(f,.02,.30)),legs=ss(remap(f,.18,.48)),torso=ss(remap(f,.36,.70)),arms=ss(remap(f,.50,.80)),head=ss(remap(f,.70,.96));
+  // line grows from drained mass
+  const end=mix(x+8,1085,easeOut(f));if(f>.04){const a=remap(f,.04,1);brushCurve(x-8,y+29,x+110,y+18,end-130,y+24,end,y+12,12.5,COLORS.ink,.96,a*100+1);brushCurve(x+20,y+27,x+150,y+22,end-80,y+20,end-8,y+13,2.3,COLORS.blue,.25*a,930)}
+  ctx.save();ctx.translate(x,y);ctx.globalCompositeOperation='multiply';
+  // head survives longest and becomes a droplet before joining
+  if(head<1){const hs=1-head*.35;ctx.fillStyle=`rgba(15,17,17,${1-head*.78})`;ctx.beginPath();ctx.moveTo(-8*hs,-42+head*23);ctx.bezierCurveTo(-12,-34, -8,-25,0,-22+head*18);ctx.bezierCurveTo(8,-24,11,-33,7*hs,-41+head*23);ctx.bezierCurveTo(4,-47,-4,-47,-8*hs,-42+head*23);ctx.fill();ctx.fillStyle=`rgba(255,255,244,${.15*(1-head)})`;ellipse(-3,-39+head*23,2.1,3,-.2);ctx.fill()}
+  // torso narrows downward and streams into baseline instead of flattening into an oval
+  if(torso<1){ctx.fillStyle=`rgba(16,18,18,${1-torso*.84})`;ctx.beginPath();ctx.moveTo(-13,-20+torso*14);ctx.bezierCurveTo(-18,-2,-12,18, -7+torso*4,25);ctx.bezierCurveTo(-3+torso*3,31,6+torso*5,27,11,13);ctx.bezierCurveTo(16,-3,10,-18,0,-23+torso*12);ctx.closePath();ctx.fill()}
+  // arms become hanging ink threads then merge into line
+  if(arms<1){for(const side of [-1,1]){const ax=side*10,ay=-8+arms*12;brushCurve(ax,ay,side*(20+arms*16),8+arms*14,side*(25-arms*8),24+arms*8,side*(18-arms*11),33,4.3*(1-arms*.55),COLORS.ink,.92*(1-arms*.65),950+side)}}
+  // legs drain early with separate timing so two distinct strands remain visible
+  if(legs<1){for(const side of [-1,1]){const q=clamp(legs+(side>0?.08:0));brushCurve(side*6,20,side*(9+q*4),28,side*(12-q*7),34,side*(7-q*5),39,5*(1-q*.55),COLORS.ink,.92*(1-q*.55),960+side);ctx.fillStyle=`rgba(14,16,16,${.72*(1-feet)})`;ellipse(side*(8-feet*5),38,6*(1-feet*.6),2.5*(1-feet*.6),0);ctx.fill()}}
+  ctx.restore();
+  // capillary threads visibly connect disappearing body parts to the completed stroke
+  if(f>.26){const q=ss(remap(f,.26,.82));for(let i=0;i<4;i++){const sy=y-28+i*17,ex=mix(x+30,end-35,q);ctx.strokeStyle=`rgba(18,20,20,${.16*q*(1-head*.4)})`;ctx.lineWidth=1.1+i*.25;ctx.beginPath();ctx.moveTo(x+(i-1.5)*5,sy);ctx.quadraticCurveTo(x+70+i*18,y+10+i*5,ex,y+14+i*2);ctx.stroke()}}
+  if(f>.82&&f<.995){const q=remap(f,.82,.995);ctx.fillStyle=`rgba(245,241,220,${.18*(1-q)})`;ellipse(mix(x,x+300,q),mix(y-39,y+13,q),2.8*(1-q)+.6,2.8*(1-q)+.6,0);ctx.fill()}
+}
+function shot17(p){
+  paperBase();paperFiberOverlay(.13);
+  ctx.save();ctx.translate(-120,48);for(let i=0;i<7;i++)pseudoGlyph(115+i*122,430,.92,i+201,.76,(hash(i+901)-.5)*.025);roughStroke([[958,442],[1018,436],[1051,429]],12.2,COLORS.ink,.95,401);ctx.restore();
+  for(let k=0;k<2;k++){ctx.strokeStyle=`rgba(117,92,60,${.11-k*.02})`;ctx.lineWidth=.9;ctx.beginPath();ctx.moveTo(938,488+k*2);ctx.bezierCurveTo(1020,479,1110,495,1242,472+k);ctx.stroke()}
+  ctx.fillStyle='rgba(19,20,20,.085)';for(let i=0;i<8;i++){ellipse(420+i*41,529+(i%2)*5,4.8,1.7,.1);ctx.fill()}
+  if(p<.24){
+    inkPerson(770,492,1.62,{run:0,phase:0,small:.05,blue:.38,lean:0});
+    const h=Math.sin(remap(p,0,.24)*Math.PI);brushCurve(788,482,810,466,824,467,838,476,3.8,COLORS.ink,.35*h,940);
+  } else {
+    const f=remap(p,.24,.97);bodyLiquefy(770,492,f);
+    if(f>.50){const q=remap(f,.50,1);brushCurve(800,510,930,498,1070,514,mix(910,1222,q),486,11.2,COLORS.ink,.80*q,952)}
+  }
+  const soak=ss(remap(p,.48,1));if(soak>0){const g=ctx.createRadialGradient(812,505,6,812,505,195*soak);g.addColorStop(0,`rgba(28,29,28,${.080*soak})`);g.addColorStop(1,'rgba(28,29,28,0)');ctx.fillStyle=g;ctx.fillRect(600,350,430,315)}
+  const sh=ctx.createLinearGradient(0,590,0,720);sh.addColorStop(0,'rgba(83,64,42,0)');sh.addColorStop(1,'rgba(83,64,42,.13)');ctx.fillStyle=sh;ctx.fillRect(0,580,W,140);
+}
+// ---------- shot 18 ----------
+function bloomGlyph(x,y,s,seed,p){
+  pseudoGlyph(x,y,s,seed,.88,0);if(p<=0)return;
+  ctx.save();ctx.globalCompositeOperation='multiply';ctx.globalAlpha=.46*p;ctx.translate(x,y);ctx.scale(s,s);
+  // pigment first enters one stem, then branches through the pressed character
+  brushCurve(-29,40,-22,5,-31,-18,-25,-35,3.1,COLORS.blue,.78,seed+1200);
+  if(hash(seed)>.25)brushCurve(-21,4,-5,-9,12,10,29,21,2.5,COLORS.blue,.66,seed+1201);
+  if(hash(seed)>.52)roughStroke([[10,-22],[11,34]],2.4,COLORS.blue,.58,seed+1202);
+  // tiny bloom at one terminal makes the spread visible at thumbnail size
+  if(p>.55){ctx.fillStyle=`rgba(52,102,139,${.16*remap(p,.55,1)})`;ellipse(23,-27,7,3,.1);ctx.fill()}
+  ctx.restore();
+}
+function shot18(p){
+  paperBase();
+  const pull=easeInOut(remap(p,.08,.96));const zoom=mix(1.48,.58,pull),tx=mix(-250,278,pull),ty=mix(-222,112,pull);
+  ctx.save();ctx.translate(tx,ty);ctx.scale(zoom,zoom);
+  const sourceX=1110,sourceY=512;
+  // Paragraph propagation is radial from the completed terminal stroke, not index-based.
+  let idx=0;for(let row=0;row<5;row++){
+    const y=190+row*120;for(let i=0;i<9;i++){
+      const x=120+i*108+(row%2)*18+(hash(idx+2)-.5)*5;
+      const dist=Math.hypot(x-sourceX,y-sourceY);const delay=.11+dist/1180*.58;const bp=ss(remap(p,delay,delay+.24));
+      bloomGlyph(x,y,.65+hash(idx)*.08,1000+idx,bp);idx++;
+    }
+  }
+  // completed line is visibly the origin
+  const source=ss(remap(p,.01,.18));roughStroke([[855,535],[910,530],[950,522]],9.5,COLORS.ink,.94,1401);brushCurve(950,522,1010,508,1090,530,1200,505,10.8,COLORS.ink,.97,1402);brushCurve(956,522,1022,510,1090,528,1194,506,3.1,COLORS.blue,.62*source,1403);
+  // pigment halo soaks outward only along paper, staying local to the new stroke
+  if(source>0){const h=ctx.createRadialGradient(1100,515,8,1100,515,215*source);h.addColorStop(0,`rgba(44,91,128,${.13*source})`);h.addColorStop(.45,`rgba(44,91,128,${.055*source})`);h.addColorStop(1,'rgba(44,91,128,0)');ctx.fillStyle=h;ctx.fillRect(850,290,470,420)}
+
+  // Branch network grows in three beats: line -> row -> paragraph/page.
+  ctx.save();ctx.globalCompositeOperation='multiply';for(let i=0;i<58;i++){
+    const sx=sourceX+(hash(i*2)-.5)*160,sy=sourceY+(hash(i*3)-.5)*35;
+    const targetRow=Math.floor(hash(i*5)*5),targetCol=Math.floor(hash(i*7)*9);const ex=120+targetCol*108+(targetRow%2)*18,ey=190+targetRow*120;
+    const dist=Math.hypot(ex-sourceX,ey-sourceY),delay=.12+dist/1200*.55+hash(i+9)*.05,q=ss(remap(p,delay,delay+.19));if(q<=0)continue;
+    const mx=mix(sx,ex,.52)+(hash(i+11)-.5)*85;ctx.strokeStyle=`rgba(33,82,120,${.13*q})`;ctx.lineWidth=.7+hash(i)*1.45;ctx.beginPath();ctx.moveTo(sx,sy);ctx.bezierCurveTo(mx,sy+(hash(i+2)-.5)*95,mx,ey+(hash(i+4)-.5)*80,mix(sx,ex,q),mix(sy,ey,q));ctx.stroke();
+  }ctx.restore();
+  // fibers themselves carry a few unmistakable blue threads
+  const pageWave=ss(remap(p,.55,.92));if(pageWave>0){for(let i=0;i<20;i++){const y=90+hash(i*4)*560,x=90+hash(i*8)*1060;ctx.strokeStyle=`rgba(38,88,126,${.08*pageWave})`;ctx.lineWidth=.55+hash(i)*.55;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+60+hash(i+5)*150,y+(hash(i+7)-.5)*18);ctx.stroke()}}
+  ctx.restore();
+
+  // stacked page edges arrive late, proving the effect reached beyond one line without a global flash
+  const edge=ss(remap(p,.64,1));for(let i=0;i<5;i++){ctx.strokeStyle=`rgba(${i<2?'46,88,119':'93,71,45'},${(.055+i*.007)*edge})`;ctx.lineWidth=1+i*.12;ctx.beginPath();ctx.moveTo(40,H-38-i*4);ctx.quadraticCurveTo(W*.5,H-55-i*3,W-28,H-31-i*4);ctx.stroke()}
+  // final page state is measurably cooler, but never flashes.
+  const e=ss(remap(p,.78,1));ctx.fillStyle=`rgba(49,91,123,${.070*e})`;ctx.fillRect(0,0,W,H);
+}
+
+// ---------- shot 02 : bead wakes ----------
+function shot02(p){
+  paperBase(); paperFiberOverlay(.15);
+  // Preserve the terminal from shot 01 but move much closer: the world is now microscopic.
+  ctx.save();ctx.translate(-165,-58);ctx.scale(1.22,1.22);
+  roughStroke([[815,470],[900,462],[956,452]],14,COLORS.ink,.92,2201);
+  for(let k=0;k<4;k++){ctx.strokeStyle=k<2?'rgba(255,249,231,.30)':'rgba(105,80,53,.22)';ctx.lineWidth=k<2?1.35:.75;ctx.beginPath();ctx.moveTo(960,450+k*1.7);ctx.bezierCurveTo(1030,439,1120,464,1295,430+k);ctx.stroke()}
+  const q=easeInOut(remap(p,.06,.82)), settle=ss(remap(p,.78,1));
+  const x=905,y=520;
+  // A puddle first, then surface tension pulls a body out of it.
+  ctx.save();ctx.globalCompositeOperation='multiply';
+  const puddle=ctx.createRadialGradient(x-7,y-4,2,x,y,70);puddle.addColorStop(0,'rgba(8,10,10,.94)');puddle.addColorStop(.58,'rgba(16,18,18,.55)');puddle.addColorStop(1,'rgba(16,18,18,0)');ctx.fillStyle=puddle;ellipse(x,y,56*(1-q*.72),16*(1-q*.50),-.03);ctx.fill();ctx.restore();
+  if(q>.08){
+    const rise=remap(q,.08,.82), sy=mix(.24,1.65,easeOut(rise)), yy=mix(y-2,y-4,rise);
+    ctx.save();ctx.translate(x,yy);ctx.scale(1,sy);
+    ctx.fillStyle='#111313';ctx.beginPath();ctx.moveTo(-15,0);ctx.bezierCurveTo(-20,-16,-12,-35,-2,-42);ctx.bezierCurveTo(12,-34,19,-15,14,5);ctx.bezierCurveTo(8,20,-8,18,-15,0);ctx.fill();
+    ctx.fillStyle='rgba(255,255,245,.16)';ellipse(-5,-30,2.6,7,-.18);ctx.fill();ctx.restore();
+    // limbs peel from the puddle late, retaining threads of ink.
+    const l=ss(remap(q,.42,.92));ctx.strokeStyle=`rgba(15,17,17,${.78*l})`;ctx.lineWidth=4.5;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(x-10,y-34);ctx.quadraticCurveTo(x-28,y-25,x-34,y-4+l*8);ctx.moveTo(x+11,y-33);ctx.quadraticCurveTo(x+29,y-24,x+34,y-8+l*10);ctx.moveTo(x-6,y-5);ctx.quadraticCurveTo(x-15,y+18,x-15,y+35);ctx.moveTo(x+7,y-5);ctx.quadraticCurveTo(x+17,y+17,x+18,y+34);ctx.stroke();
+    for(let i=0;i<4;i++){ctx.strokeStyle=`rgba(15,17,17,${.24*(1-l)})`;ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(x-24+i*15,y+2);ctx.quadraticCurveTo(x-20+i*12,y+18,x-18+i*12,y+28);ctx.stroke()}
+  }
+  // One bead refuses to join, then snaps back — tiny acting detail.
+  const b=ss(remap(p,.28,.72));ctx.fillStyle='rgba(14,16,16,.72)';ellipse(x+mix(40,20,b),y+12-Math.sin(b*Math.PI)*30,5*(1-b*.55),3.5*(1-b*.5),0);ctx.fill();
+  // Focus breath after standing.
+  if(settle){ctx.fillStyle=`rgba(255,250,236,${.035*settle})`;ctx.fillRect(0,0,W,H)}
+  ctx.restore();
+  // Extreme foreground fiber establishes lens depth.
+  ctx.save();ctx.filter='blur(2px)';ctx.strokeStyle='rgba(90,68,43,.18)';ctx.lineWidth=10;ctx.beginPath();ctx.moveTo(-30,620);ctx.bezierCurveTo(280,565,650,700,1320,624);ctx.stroke();ctx.restore();ctx.filter='none';
+}
+
+// ---------- shot 03 : clue / over-shoulder ----------
+function shot03(p){
+  paperBase(.03);paperFiberOverlay(.11);
+  // Main unfinished line and scar occupy the upper half.
+  ctx.save();ctx.translate(-60,4);for(let i=0;i<7;i++)pseudoGlyph(85+i*126,390,.88,i+260,.82,(hash(i+12)-.5)*.03);roughStroke([[885,402],[948,396],[995,386]],12,COLORS.ink,.94,2301);ctx.restore();
+  for(let k=0;k<5;k++){ctx.strokeStyle=k<2?'rgba(255,249,231,.28)':'rgba(111,86,57,.20)';ctx.lineWidth=k<2?1.2:.8;ctx.beginPath();ctx.moveTo(940,390+k*1.7);ctx.bezierCurveTo(1020,380,1115,400,1280,370+k);ctx.stroke()}
+  // Over-shoulder silhouette, deliberately close and off-centre.
+  ctx.save();ctx.translate(310,595);ctx.scale(3.5,3.5);inkPerson(0,0,1,{run:0,phase:0,blue:0,lean:-.05});ctx.restore();
+  // Hand reaches the dry missing groove. Finger stretches with surface tension.
+  const reach=easeInOut(remap(p,.08,.58));
+  brushCurve(360,540,495,482,735,437,mix(710,938,reach),mix(430,393,reach),9,COLORS.ink,.92,2302);
+  if(reach>.6){const tx=mix(865,950,remap(reach,.6,1)),ty=mix(408,392,remap(reach,.6,1));ctx.fillStyle='rgba(13,15,15,.88)';ellipse(tx,ty,14,5,-.12);ctx.fill()}
+  // Cobalt only appears after touch and follows a real hairline capillary, not a glow effect.
+  const clue=ss(remap(p,.48,.93));
+  if(clue>0){
+    ctx.save();ctx.globalCompositeOperation='multiply';
+    brushCurve(956,391,1008,408,1090,434,1260,457,3.3,COLORS.blue,.54*clue,2310);
+    for(let i=0;i<12;i++){const q=ss(remap(clue,i*.045,.34+i*.045));ctx.strokeStyle=`rgba(39,83,119,${.10*q})`;ctx.lineWidth=.7+hash(i)*.7;ctx.beginPath();const x=1000+i*21,y=410+i*3;ctx.moveTo(x,y);ctx.lineTo(x+(hash(i+4)-.5)*28,y+14+hash(i+8)*20);ctx.stroke()}
+    ctx.restore();
+  }
+  // The finger leaves a tiny black thread that breaks after contact.
+  const snap=remap(p,.68,.96);if(snap>0&&snap<1){ctx.strokeStyle=`rgba(15,17,17,${.42*(1-snap)})`;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(950,394);ctx.quadraticCurveTo(935,420,920-snap*12,447+snap*22);ctx.stroke()}
+}
+
+// ---------- shot 05 : punctuation stepping stones ----------
+function punctStone(x,y,r,type=0,seed=1){
+  ctx.save();ctx.translate(x,y);ctx.rotate((hash(seed)-.5)*.10);ctx.globalCompositeOperation='multiply';
+  ctx.fillStyle='rgba(20,21,20,.93)';
+  if(type===0){ellipse(0,0,r,r*.82,.05);ctx.fill()}
+  else {ctx.beginPath();ctx.arc(0,-r*.10,r*.78,0,TAU);ctx.fill();brushCurve(r*.10,r*.30,r*.2,r*.7,-r*.18,r*.9,-r*.35,r*1.12,r*.28,COLORS.ink,.92,seed+10)}
+  ctx.fillStyle='rgba(255,255,245,.12)';ellipse(-r*.24,-r*.25,r*.13,r*.08,-.4);ctx.fill();ctx.restore();
+}
+function shot05(p){
+  paperBase();
+  // Background paragraphs curve with the page.
+  ctx.save();ctx.globalAlpha=.22;ctx.transform(1,0,-.045,1,0,0);for(let row=0;row<3;row++)for(let i=0;i<12;i++)pseudoGlyph(30+i*112,180+row*108,.52,i+row*40+250,.75,0);ctx.restore();
+  // Stones recede in perspective.
+  const stones=[[150,560,52,0],[342,515,47,1],[535,548,60,0],[748,495,43,0],[935,545,57,1],[1140,500,50,0]];
+  stones.forEach((s,i)=>punctStone(...s,i+2500));
+  cobaltTrace([80,610,340,560,760,575,1230,535],5,.28);
+  // Jump path with squash before / after landing.
+  const seg=p*4.6,idx=Math.min(4,Math.floor(seg)),lp=seg-idx;const a=stones[idx],b=stones[idx+1];
+  const x=mix(a[0],b[0],easeInOut(lp)),ground=mix(a[1]-a[2]-12,b[1]-b[2]-12,easeInOut(lp));const y=ground-Math.sin(lp*Math.PI)*(95+idx*8);
+  const squash=(lp<.12?1-remap(lp,0,.12)*.18:lp>.86?1-remap(lp,.86,1)*.20:1);
+  ctx.save();ctx.translate(x,y);ctx.scale(1/squash,squash);inkPerson(0,0,1.45,{run:.4,phase:p*5.4,lean:mix(-.22,.25,lp),blue:.32});ctx.restore();
+  // last period rolls away after landing, forcing a stumble.
+  const roll=ss(remap(p,.76,1));if(roll>0){ctx.save();ctx.translate(1140+roll*95,500+roll*18);ctx.rotate(roll*4);punctStone(0,0,50,0,2600);ctx.restore()}
+  // Foreground comma streak.
+  ctx.save();ctx.filter='blur(1.1px)';ctx.globalAlpha=.36;punctStone(30,670,115,1,2655);ctx.restore();ctx.filter='none';
+}
+
+// ---------- shot 06 : cobalt puddle macro ----------
+function shot06(p){
+  paperBase(.02); paperFiberOverlay(.22,1.12);
+  ctx.save();ctx.translate(-55,-28);ctx.scale(1.15,1.15);
+  // Existing cobalt residue sits inside the paper grain rather than on top of it.
+  ctx.globalCompositeOperation='multiply';
+  const pool=ctx.createRadialGradient(646,438,10,646,438,205);pool.addColorStop(0,'rgba(34,79,116,.42)');pool.addColorStop(.48,'rgba(34,79,116,.19)');pool.addColorStop(1,'rgba(34,79,116,0)');ctx.fillStyle=pool;ellipse(646,440,218,78,-.035);ctx.fill();
+  for(let i=0;i<26;i++){const x=490+hash(i*4.7)*315,y=420+(hash(i*7.1)-.5)*82;ctx.strokeStyle=`rgba(38,82,117,${.06+hash(i)*.10})`;ctx.lineWidth=.45+hash(i+9)*1.2;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+28+hash(i+3)*70,y+(hash(i+5)-.5)*12);ctx.stroke()}
+  ctx.globalCompositeOperation='source-over';
+
+  // The leg is attached to an unmistakable ankle and foot. Contact visibly squashes the wet mass.
+  const down=easeOut(remap(p,.02,.36)), lift=easeInOut(remap(p,.67,1));
+  const impact=ss(remap(p,.27,.48))*(1-ss(remap(p,.54,.78)));
+  const fy=mix(222,425,down)-lift*54;
+  const ankleX=596, ankleY=fy-35;
+  brushCurve(548,82,555,180,575,275,ankleX,ankleY,23,COLORS.ink,.98,2701);
+  // pooled ankle joint makes the connection leg->foot readable even in a single frame
+  ctx.fillStyle='#111313';ellipse(ankleX,ankleY+8,20+impact*5,27-impact*4,-.05);ctx.fill();
+  ctx.fillStyle='rgba(255,255,245,.11)';ellipse(ankleX-7,ankleY-4,7,14,-.3);ctx.fill();
+
+  const squashY=1-impact*.36, spread=impact*15;
+  ctx.save();ctx.translate(620,fy);ctx.scale(1,squashY);
+  // heel -> arch -> toe silhouette, not an ellipse
+  ctx.beginPath();ctx.moveTo(-30,-13);ctx.bezierCurveTo(-22,-25,-3,-28,10,-19);ctx.bezierCurveTo(25,-17,42,-10,52+spread,0);ctx.bezierCurveTo(42+spread,11,21+spread*.55,17,2,16);ctx.bezierCurveTo(-17,18,-34,10,-38,1);ctx.bezierCurveTo(-40,-6,-36,-11,-30,-13);ctx.closePath();ctx.fillStyle='#101212';ctx.fill();
+  // wet edge pooled at heel and toe
+  ctx.fillStyle='rgba(13,15,15,.72)';ellipse(-27,8,15+impact*4,5+impact*2,.12);ctx.fill();ellipse(42+spread*.62,7,18+impact*7,4.8+impact*2,-.08);ctx.fill();
+  ctx.strokeStyle='rgba(255,255,245,.14)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(-19,-13);ctx.bezierCurveTo(-1,-21,22,-13,39+spread*.45,-3);ctx.stroke();
+  ctx.restore();
+
+  // Contact shadow becomes broader at the exact impact beat.
+  ctx.fillStyle=`rgba(31,27,23,${.07+.08*impact})`;ellipse(623,451,58+impact*34,9+impact*4,0);ctx.fill();
+  const hit=ss(remap(p,.31,.78));if(hit>0){for(let i=0;i<6;i++){const q=clamp(hit-i*.10);if(q<=0)continue;ctx.strokeStyle=`rgba(38,83,120,${.34*(1-q)})`;ctx.lineWidth=1.3+i*.12;ellipse(623,444,35+q*245,11+q*62,-.03);ctx.stroke()}}
+  for(let i=0;i<26;i++){const q=clamp(remap(p,.33,.82));const ang=-2.95+hash(i)*2.86,spd=55+hash(i+3)*188;const x=623+Math.cos(ang)*spd*q,y=440+Math.sin(ang)*spd*q+125*q*q;ctx.fillStyle=`rgba(36,79,113,${.50*(1-q)})`;ellipse(x,y,2+hash(i)*5.5,1.3+hash(i+7)*3.2,ang);ctx.fill()}
+  // pigment climbs the wet edge instead of appearing as a decal.
+  if(p>.55){const a=ss(remap(p,.55,.92));ctx.save();ctx.globalCompositeOperation='multiply';ctx.fillStyle=`rgba(72,123,154,${.42*a})`;ellipse(635,fy-3,15+5*a,5.5,-.06);ctx.fill();brushCurve(626,fy-4,620,fy-14,612,fy-19,607,fy-25,2.4,COLORS.blue,.28*a,2704);ctx.restore()}
+  ctx.restore();
+}
+
+// ---------- shot 07 : page cliff ----------
+function shot07(p){
+  // Dark void between pages.
+  ctx.fillStyle='#121514';ctx.fillRect(0,0,W,H);
+  // Layered page edges with different breathing/parallax.
+  for(let i=0;i<8;i++){
+    const yy=105+i*72+Math.sin(p*TAU+i*.8)*(2+i*.25);ctx.fillStyle=i<2?'#e1d3b8':'#c7b493';ctx.beginPath();ctx.moveTo(-20,yy);ctx.bezierCurveTo(280,yy-15,730,yy+18,1300,yy-7);ctx.lineTo(1300,yy+58);ctx.bezierCurveTo(720,yy+78,330,yy+46,-20,yy+63);ctx.closePath();ctx.fill();ctx.strokeStyle='rgba(84,63,40,.21)';ctx.lineWidth=1;ctx.stroke();
+  }
+  // Upper page corner folded down like a hanging sail.
+  ctx.save();ctx.translate(1050,90);ctx.fillStyle='#e7dbc3';ctx.beginPath();ctx.moveTo(-470,0);ctx.quadraticCurveTo(-120,55,160,10);ctx.lineTo(20,320);ctx.quadraticCurveTo(-180,270,-430,170);ctx.closePath();ctx.fill();ctx.strokeStyle='rgba(88,66,42,.24)';ctx.stroke();ctx.restore();
+  // character descends on a long fiber from page edge
+  const descend=easeInOut(remap(p,.08,.9)),cx=mix(800,700,descend),cy=mix(190,560,descend);ctx.strokeStyle='rgba(112,88,60,.65)';ctx.lineWidth=2.1;ctx.beginPath();ctx.moveTo(815,85);ctx.bezierCurveTo(805,250,770,390,cx,cy-35);ctx.stroke();
+  inkPerson(cx,cy,1.42,{run:.1,phase:p,lean:.10*Math.sin(p*4),blue:.42});
+  // suspended dust and loose pulp fall slower than the character
+  for(let i=0;i<45;i++){const y=(hash(i+5)*H+p*(18+hash(i)*38))%H,x=hash(i*11)*W;ctx.fillStyle=`rgba(215,199,165,${.08+hash(i)*.10})`;ctx.fillRect(x,y,1+hash(i)*2,1+hash(i+3)*3)}
+  // foreground edge cuts across lens.
+  ctx.fillStyle='rgba(221,207,178,.55)';ctx.beginPath();ctx.moveTo(-40,640);ctx.quadraticCurveTo(350,580,710,680);ctx.lineTo(700,760);ctx.lineTo(-40,760);ctx.closePath();ctx.fill();
+}
+
+// ---------- shot 09 : comma boat ----------
+function shot09(p){
+  paperBase();
+  ctx.save();ctx.globalCompositeOperation='multiply';const rg=ctx.createLinearGradient(0,260,0,650);rg.addColorStop(0,'rgba(26,29,28,.05)');rg.addColorStop(.45,'rgba(24,28,29,.36)');rg.addColorStop(1,'rgba(17,20,21,.12)');ctx.fillStyle=rg;ctx.beginPath();ctx.moveTo(-20,380);for(let x=0;x<=1320;x+=80){ctx.lineTo(x,390+Math.sin(x*.012+p*4)*38)}ctx.lineTo(1320,650);for(let x=1320;x>=-20;x-=80){ctx.lineTo(x,590+Math.sin(x*.01+p*3+1)*24)}ctx.closePath();ctx.fill();ctx.restore();
+  ctx.save();ctx.globalAlpha=.11;ctx.filter='blur(2px)';ctx.scale(1,-.42);ctx.translate(0,-1250);for(let i=0;i<11;i++)pseudoGlyph(30+i*120,470,.8,i+3000,.8,0);ctx.restore();ctx.filter='none';
+
+  const cx=mix(180,1090,easeInOut(p));
+  // Cross-current hits at unequal intervals; roll, heave and yaw are deliberately out of phase.
+  const roll=-.10+Math.sin(p*TAU*1.6)*.085+Math.sin(p*TAU*3.7)*.027;
+  const heave=Math.sin(p*TAU*1.35)*15+Math.sin(p*TAU*3.1)*5;
+  const kick=Math.sin(remap(p,.43,.68)*Math.PI)*((p>.43&&p<.68)?18:0);
+  const cy=492+heave-kick;
+  ctx.save();ctx.translate(cx,cy);ctx.rotate(roll);ctx.fillStyle='#151717';ellipse(0,0,64,47,.08);ctx.fill();brushCurve(22,25,48,56,18,86,-23,96,18,COLORS.ink,.94,3001);ctx.fillStyle='rgba(255,255,245,.11)';ellipse(-18,-15,17,7,-.3);ctx.fill();
+  // blue wet rim shows the hull actually contacting the river
+  ctx.strokeStyle='rgba(63,108,137,.20)';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,4,56,.12,2.8);ctx.stroke();ctx.restore();
+  inkPerson(cx-2,cy-60,1.25,{run:.05,phase:p,lean:-roll*.9+.12*Math.sin(p*6),blue:.50});
+
+  for(let i=0;i<7;i++){const wob=Math.sin(p*7+i)*8;ctx.strokeStyle=`rgba(70,81,83,${.16-i*.018})`;ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(cx-48,cy+23+i*4);ctx.bezierCurveTo(cx-155,cy-2+wob,cx-285,cy+52-wob,cx-470,cy+18+i*9);ctx.stroke()}
+  // one lateral wave crosses the hull and breaks the otherwise symmetrical travel
+  const cross=ss(remap(p,.38,.55))*(1-ss(remap(p,.62,.78)));if(cross>0){ctx.strokeStyle=`rgba(55,72,78,${.30*cross})`;ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(cx-150,cy+48);ctx.quadraticCurveTo(cx-35,cy-45,cx+128,cy+22);ctx.stroke()}
+  ctx.save();ctx.globalAlpha=.34;ctx.strokeStyle='#8b7454';ctx.lineWidth=4;ctx.filter='blur(.5px)';for(let i=0;i<9;i++){const x=(i*180-(p*280)%180)-30;ctx.beginPath();ctx.moveTo(x,710);ctx.bezierCurveTo(x+70,560,x+35,390,x+130,280);ctx.stroke()}ctx.restore();ctx.filter='none';
+}
+
+// ---------- shot 10 : torn whirlpool ----------
+function shot10(p){
+  paperBase();
+  const cx=760,cy=410;
+  // Torn aperture with ragged fibers, not a clean ellipse.
+  ctx.save();ctx.translate(cx,cy);ctx.beginPath();for(let i=0;i<22;i++){const a=i/22*TAU,r=(i%2?128:149)*(1+(hash(i+3100)-.5)*.18);const x=Math.cos(a)*r,y=Math.sin(a)*r*.72;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.closePath();ctx.fillStyle='#171a1b';ctx.fill();ctx.strokeStyle='rgba(100,76,48,.34)';ctx.lineWidth=4;ctx.stroke();for(let i=0;i<38;i++){const a=hash(i)*TAU,r=130+hash(i+4)*42;ctx.strokeStyle='rgba(126,98,65,.28)';ctx.lineWidth=.6+hash(i+8)*1.5;ctx.beginPath();ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r*.72);ctx.lineTo(Math.cos(a)*(r+35+hash(i)*60),Math.sin(a)*(r+20)*.76);ctx.stroke()}ctx.restore();
+  // Ink stream spirals into it.
+  ctx.save();ctx.globalCompositeOperation='multiply';for(let ring=0;ring<8;ring++){ctx.strokeStyle=`rgba(22,27,28,${.06+ring*.018})`;ctx.lineWidth=4+ring*.7;ctx.beginPath();for(let j=0;j<90;j++){const a=j/90*TAU*2.2+p*4+ring*.3,r=340*(1-j/90)+ring*7;const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r*.54;if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke()}ctx.restore();
+  // comma breaks apart; protagonist catches torn edge
+  const pull=ss(remap(p,.12,.72));const px=mix(420,650,pull),py=mix(345,385,pull);
+  inkPerson(px,py,1.35,{run:.25,phase:p*2,lean:.45*pull,blue:.50});
+  // long stretched arm to rim
+  if(pull>.35)brushCurve(px+8,py-6,px+60,py-40,cx-120,cy-92,cx-88,cy-72,5,COLORS.ink,.86,3111);
+  for(let i=0;i<9;i++){const q=ss(remap(p,.25+i*.025,.62+i*.02));ctx.fillStyle=`rgba(20,22,22,${.45*(1-q)})`;ellipse(470+i*13+q*130,420+i*2+q*60,8*(1-q)+1.5,5*(1-q)+1,0);ctx.fill()}
+  // falling fragment reaches page below as a distant stain
+  const fall=ss(remap(p,.60,1));ctx.fillStyle=`rgba(20,22,22,${.30*(1-fall*.4)})`;ellipse(840,450+fall*220,6+fall*12,4+fall*7,0);ctx.fill();
+}
+
+// ---------- shot 11 : spine canyon ----------
+function shot11(p){
+  // glue / book spine palette
+  const bg=ctx.createLinearGradient(0,0,W,H);bg.addColorStop(0,'#b29d77');bg.addColorStop(.25,'#71634d');bg.addColorStop(.72,'#292a27');bg.addColorStop(1,'#121414');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  // distant stacked signatures of pages
+  for(let i=0;i<13;i++){const x=40+i*102+Math.sin(i)*18;ctx.strokeStyle=`rgba(229,214,179,${.08+hash(i)*.05})`;ctx.lineWidth=18+hash(i)*14;ctx.beginPath();ctx.moveTo(x,-20);ctx.bezierCurveTo(x-25,210,x+35,480,x+(hash(i)-.5)*80,760);ctx.stroke()}
+  // sewn threads form climbable architecture
+  for(let i=0;i<7;i++){const x=260+i*150;ctx.strokeStyle='rgba(186,151,102,.55)';ctx.lineWidth=5.5;ctx.beginPath();ctx.moveTo(x,-20);ctx.bezierCurveTo(x+70,170,x-80,360,x+25,740);ctx.stroke();for(let j=0;j<5;j++){ctx.strokeStyle='rgba(213,182,132,.30)';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(x-6,j*150+30);ctx.lineTo(x+42,j*150+75);ctx.stroke()}}
+  // character climbs one central thread; hand/body lag produces effort.
+  const climb=easeInOut(p),cx=660+Math.sin(p*5)*14,cy=mix(640,145,climb);inkPerson(cx,cy,1.48,{run:.3,phase:p*3.4,lean:-.12,blue:.34,small:.06});
+  // one foot slips at 65%, body drops and recovers
+  const slip=Math.sin(remap(p,.55,.78)*Math.PI)*((p>.55&&p<.78)?36:0);ctx.save();ctx.strokeStyle='rgba(14,16,16,.35)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx-4,cy+18);ctx.quadraticCurveTo(cx-40,cy+50+slip,cx-72,cy+74+slip);ctx.stroke();ctx.restore();
+  // glue beads catch tiny highlights
+  for(let i=0;i<35;i++){const x=hash(i*17)*W,y=hash(i*23)*H,r=2+hash(i+4)*8;ctx.fillStyle='rgba(224,197,147,.12)';ellipse(x,y,r,r*.45,hash(i));ctx.fill()}
+  // cobalt clue is almost gone: a few stains only.
+  for(let i=0;i<5;i++){ctx.fillStyle='rgba(42,83,113,.15)';ellipse(590+i*70,650-i*110,7,3,.2);ctx.fill()}
+}
+
+// ---------- shot 13 : understanding ----------
+function shot13(p){
+  // Understanding is performed by liquid mass: sag, reflection, loss. No face or giant oval.
+  paperBase(.07);
+  // scar sits far behind in shallow focus
+  ctx.save();ctx.filter='blur(4px)';ctx.globalAlpha=.28;for(let k=0;k<9;k++){ctx.strokeStyle=k<3?'rgba(255,249,230,.30)':'rgba(92,69,44,.22)';ctx.lineWidth=k<3?1.5:.8;ctx.beginPath();ctx.moveTo(-40,235+k);ctx.bezierCurveTo(360,190,820,286,1320,214+k);ctx.stroke()}ctx.restore();ctx.filter='none';
+
+  const q=ss(remap(p,.18,.96)), sag=18*q;
+  // Cropped shoulder/head silhouette with an open edge; reads as a body, not a symbol.
+  ctx.save();ctx.globalCompositeOperation='multiply';
+  const g=ctx.createLinearGradient(235,155,820,640);g.addColorStop(0,'#0a0c0c');g.addColorStop(.52,'#171919');g.addColorStop(1,'#080909');ctx.fillStyle=g;
+  ctx.beginPath();ctx.moveTo(150,740);ctx.lineTo(150,500+sag*.2);ctx.bezierCurveTo(205,430+sag,290,425+sag,345,454+sag);
+  ctx.bezierCurveTo(382,386+sag*.6,410,314+sag*.5,398,244+sag*.35);ctx.bezierCurveTo(387,181,423,128,492,122);
+  ctx.bezierCurveTo(574,116,639,166,652,244+sag*.25);ctx.bezierCurveTo(666,331+sag*.5,623,399+sag*.8,568,447+sag);
+  ctx.bezierCurveTo(646,445+sag,740,490+sag,815,581+sag*.7);ctx.lineTo(900,740);ctx.closePath();ctx.fill();
+  // surface-tension edge beads keep the silhouette organic
+  for(let i=0;i<9;i++){const x=350+i*46,y=463+sag+Math.sin(i*.8+p*2)*7;ctx.fillStyle='rgba(12,14,14,.75)';ellipse(x,y,7+hash(i)*6,3+hash(i+2)*3,.1);ctx.fill()}
+  ctx.restore();
+
+  // warped reflected scar travels down the wet surface as the body sags
+  ctx.strokeStyle='rgba(241,233,209,.15)';ctx.lineWidth=2.6;ctx.beginPath();ctx.moveTo(346,305+sag*.4);ctx.bezierCurveTo(430,282+sag*.5,535,327+sag*.55,622,291+sag*.45);ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,246,.08)';ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(425,166);ctx.bezierCurveTo(403,245,422,335,391,402+sag);ctx.stroke();
+
+  // A neck of ink stretches toward the drop before snapping: loss is visible as physics.
+  const drop=ss(remap(p,.20,.93)), neck=Math.sin(Math.min(1,drop)*Math.PI);
+  brushCurve(610,454+sag,630,500+sag,648,526+sag,651,551+sag+drop*40,5.5,COLORS.ink,.36*neck,1310);
+  ctx.fillStyle='rgba(12,14,14,.92)';ellipse(651,552+sag+drop*132,10*(1-drop*.45),13*(1-drop*.33),.08);ctx.fill();
+  ctx.fillStyle=`rgba(255,255,245,${.13*(1-drop)})`;ellipse(648,547+sag+drop*132,2.2,3.1,0);ctx.fill();
+  // mass loss is a pale concavity at the shoulder, not a screen fade
+  if(q>0){const rg=ctx.createRadialGradient(607,466+sag,4,607,466+sag,75*q);rg.addColorStop(0,`rgba(232,218,190,${.085*q})`);rg.addColorStop(1,'rgba(232,218,190,0)');ctx.fillStyle=rg;ctx.fillRect(520,380,190,180)}
+}
+
+// ---------- shot 14 : capillary return ----------
+function shot14(p){
+  ctx.fillStyle='#1a1c1c';ctx.fillRect(0,0,W,H);
+  // paper capillary tunnel is made from racing fibers and translucent pigment veins.
+  const travel=p*980;ctx.save();ctx.translate(-(travel%180),0);for(let i=-2;i<12;i++){
+    const x=i*180+90;for(let j=0;j<6;j++){const y=80+j*120+(i%2)*20;ctx.strokeStyle=`rgba(183,157,115,${.10+hash(i+j)*.08})`;ctx.lineWidth=1+hash(i*4+j)*2.6;ctx.beginPath();ctx.moveTo(x-130,y-50);ctx.bezierCurveTo(x-30,y-5,x+35,y+10,x+150,y+55);ctx.stroke()}
+  }ctx.restore();
+  // blue path functions like a bloodstream, pulling character through.
+  for(let i=0;i<7;i++){ctx.strokeStyle=`rgba(43,91,129,${.12+i*.015})`;ctx.lineWidth=2+i*.35;ctx.beginPath();ctx.moveTo(-20,360+i*6);ctx.bezierCurveTo(270,240-i*10,700,490+i*9,1310,315-i*4);ctx.stroke()}
+  const cx=520+Math.sin(p*TAU*2)*50,cy=360+Math.sin(p*TAU)*75;inkPerson(cx,cy,1.35,{run:.75,phase:p*6,lean:-1.25,blue:.58,small:.14});
+  // Ghosted memories: punctuation, torn hole, threads appear only for a few frames as shadows.
+  const beats=[.12,.33,.54,.73];beats.forEach((b,i)=>{const a=Math.max(0,1-Math.abs(p-b)/.09);if(a<=0)return;ctx.save();ctx.globalAlpha=.19*a;ctx.filter='blur(1.3px)';if(i===0){for(let k=0;k<5;k++)punctStone(250+k*180,300+(k%2)*80,55,k%2,k+3200)}else if(i===1){ctx.strokeStyle='#eee0c1';ctx.lineWidth=18;ellipse(820,370,150,85,0);ctx.stroke()}else if(i===2){for(let k=0;k<6;k++){ctx.strokeStyle='#e1cda6';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(180+k*190,-10);ctx.bezierCurveTo(260+k*160,220,80+k*190,480,210+k*170,760);ctx.stroke()}}else{for(let k=0;k<8;k++)pseudoGlyph(120+k*145,360,.95,k+3300,.8,0)}ctx.restore();ctx.filter='none'});
+  // radial streaks make speed without replacing object animation
+  ctx.save();ctx.globalAlpha=.11;ctx.strokeStyle='#eadbbd';for(let i=0;i<35;i++){const y=hash(i)*H,x=hash(i+8)*W;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+180+hash(i)*320,y+(hash(i+2)-.5)*25);ctx.stroke()}ctx.restore();
+}
+
+// ---------- shot 15 : return ----------
+function shot15(p){
+  paperBase();paperFiberOverlay(.12);
+  // Mirror shot 01 composition but closer and older: visual rhyme.
+  ctx.save();ctx.translate(-75,-10);for(let i=0;i<8;i++)pseudoGlyph(80+i*123,470+(hash(i+5)-.5)*4,.87,i+201,.91,(hash(i+901)-.5)*.024);roughStroke([[990,476],[1042,470],[1080,461]],12.5,COLORS.ink,.94,401);ctx.restore();
+  for(let k=0;k<4;k++){ctx.strokeStyle=k<2?'rgba(255,249,231,.25)':'rgba(112,88,58,.20)';ctx.lineWidth=k<2?1.2:.75;ctx.beginPath();ctx.moveTo(1018,460+k*1.4);ctx.bezierCurveTo(1080,450,1160,469,1290,447+k);ctx.stroke()}
+  // Dried footprints from outbound journey.
+  ctx.fillStyle='rgba(17,19,19,.075)';for(let i=0;i<12;i++){ellipse(230+i*50,550+(i%2)*4,4.2,1.5,.15);ctx.fill()}
+  // protagonist arrives already smaller; it slows to a stop instead of posing.
+  const x=mix(180,755,easeOut(remap(p,.02,.72))),slow=1-remap(p,.58,.86);inkPerson(x,510,1.35,{run:clamp(slow),phase:p*3.2,lean:-.12*slow,blue:.48,small:.28});
+  // A tiny residual drop is left behind on arrival, emphasizing lost mass.
+  const q=ss(remap(p,.58,.95));if(q>0){ctx.fillStyle=`rgba(17,19,19,${.18*(1-q)})`;ellipse(x-35*q,535+q*8,3.5,1.8,0);ctx.fill()}
+}
+
+// ---------- shot 16 : tries and fails ----------
+function shot16(p){
+  paperBase();paperFiberOverlay(.14);
+  ctx.save();ctx.translate(-80,15);for(let i=0;i<7;i++)pseudoGlyph(90+i*126,435,.90,i+201,.84,(hash(i+901)-.5)*.024);roughStroke([[920,445],[982,439],[1030,430]],12.2,COLORS.ink,.94,401);ctx.restore();
+  const x=740,y=500;inkPerson(x,y,1.42,{run:0,phase:0,small:.28+remap(p,.45,1)*.08,blue:.45,lean:0});
+  // Arm becomes the pen. It stretches, draws, thins, then breaks.
+  const reach=easeInOut(remap(p,.03,.30)),draw=easeOut(remap(p,.25,.70)),dry=ss(remap(p,.62,.94));
+  brushCurve(x+10,y-10,x+70,y-50,x+145,y-52,mix(x+145,930,reach),mix(y-52,446,reach),6.5,COLORS.ink,.90,3401);
+  if(draw>0){const end=mix(934,1110,draw);brushCurve(930,446,980,438,end-35,450,end,440,10*(1-dry*.72),COLORS.ink,.94*(1-dry*.45),3402);ctx.save();ctx.globalCompositeOperation='multiply';brushCurve(937,445,985,441,end-45,447,end,441,2.2,COLORS.blue,.20*(1-dry),3403);ctx.restore()}
+  // Dry edge physically fragments rather than fading.
+  if(dry>0){for(let i=0;i<18;i++){const q=clamp(dry-i*.035);if(q<=0)continue;ctx.fillStyle=`rgba(38,33,26,${.28*(1-q)})`;ctx.fillRect(1080+hash(i)*70+q*25,430+hash(i+3)*30+q*25,1+hash(i)*2,1+hash(i+4)*2)}}
+  // Arm recoil leaves body visibly smaller and asymmetric.
+  if(p>.78){const r=remap(p,.78,1);ctx.fillStyle=`rgba(232,219,191,${.035*r})`;ellipse(x+15,y-5,35*r,55*r,0);ctx.fill()}
+}
+
+const TOTAL=32;
+const START={};let _acc=0;for(const id of SHOTS){START[id]=_acc;_acc+=DURS[id]}
+function renderShot(id,p){
+  p=clamp(p);ctx.clearRect(0,0,W,H);
+  switch(id){
+    case'01':shot01(p);break;case'02':shot02(p);break;case'03':shot03(p);break;case'04':shot04(p);break;
+    case'05':shot05(p);break;case'06':shot06(p);break;case'07':shot07(p);break;case'08':shot08(p);break;
+    case'09':shot09(p);break;case'10':shot10(p);break;case'11':shot11(p);break;case'12':shot12(p);break;
+    case'13':shot13(p);break;case'14':shot14(p);break;case'15':shot15(p);break;case'16':shot16(p);break;
+    case'17':shot17(p);break;case'18':shot18(p);break;
+  }
+  ctx.save();ctx.strokeStyle='rgba(50,38,24,.055)';ctx.strokeRect(.5,.5,W-1,H-1);ctx.restore();
+}
+function sceneAt(t){t=Math.max(0,Math.min(TOTAL-.0001,t));for(const id of SHOTS){const s=START[id],d=DURS[id];if(t<s+d)return[id,(t-s)/d]}return['18',1]}
+function renderAt(t){const [id,p]=sceneAt(t);renderShot(id,p);return{id,p}}
+window.__renderAt=t=>{current=Math.max(0,Math.min(TOTAL,+t||0));const r=renderAt(current);syncUI(r.id);return r};
+window.__renderShot=(id,p)=>{renderShot(String(id).padStart(2,'0'),+p||0)};window.__duration=TOTAL;window.__shots=SHOTS.slice();
+
+// ---------- sound first pass : same event timeline as picture ----------
+let ac=null, master=null, startedAt=0, audioNodes=[];
+function ensureAudio(){if(ac)return;ac=new (window.AudioContext||window.webkitAudioContext)();master=ac.createGain();master.gain.value=.52;master.connect(ac.destination)}
+function reg(n){audioNodes.push(n);return n}
+function tone(time,freq,dur=.15,g=.05,type='sine',to=null){const o=reg(ac.createOscillator()),v=reg(ac.createGain());o.type=type;o.frequency.setValueAtTime(freq,time);if(to)o.frequency.exponentialRampToValueAtTime(Math.max(20,to),time+dur);v.gain.setValueAtTime(.0001,time);v.gain.exponentialRampToValueAtTime(g,time+.012);v.gain.exponentialRampToValueAtTime(.0001,time+dur);o.connect(v).connect(master);o.start(time);o.stop(time+dur+.03)}
+function noise(time,dur=.12,g=.025,cut=2200){const len=Math.max(1,Math.floor(ac.sampleRate*dur)),b=ac.createBuffer(1,len,ac.sampleRate),d=b.getChannelData(0);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len);const s=reg(ac.createBufferSource()),f=reg(ac.createBiquadFilter()),v=reg(ac.createGain());s.buffer=b;f.type='lowpass';f.frequency.value=cut;v.gain.setValueAtTime(g,time);v.gain.exponentialRampToValueAtTime(.0001,time+dur);s.connect(f).connect(v).connect(master);s.start(time)}
+function paper(time,dur=.3,g=.018){noise(time,dur,g,1300)}
+function scheduleAudio(offset=0){ensureAudio();const now=ac.currentTime+.05, base=now-offset;startedAt=base;
+  // room/paper drone built from sparse harmonics — no generic music bed at first.
+  for(const [f,a] of [[73,.012],[109.5,.007],[146,.004]]){const o=reg(ac.createOscillator()),v=reg(ac.createGain());o.type='sine';o.frequency.value=f;v.gain.setValueAtTime(.0001,now);v.gain.linearRampToValueAtTime(a,now+.8);v.gain.setValueAtTime(a,base+16.45);v.gain.linearRampToValueAtTime(.0001,base+16.60);o.connect(v).connect(master);o.start(now);o.stop(base+32.2)}
+  // birth / touch / run / punctuation
+  tone(base+1.75,390,.22,.035,'sine',520);tone(base+2.48,520,.12,.022,'sine',610);paper(base+3.45,.18,.026);tone(base+4.08,246,.20,.018,'triangle',330);
+  for(let t=4.7;t<6;t+=.22){paper(base+t,.055,.010);tone(base+t,120,.055,.010,'sine',95)}
+  [6.20,6.50,6.82,7.14].forEach((t,i)=>{tone(base+t,150-i*7,.09,.038,'sine',80);noise(base+t,.07,.018,800)});
+  tone(base+8.04,82,.38,.055,'sine',45);noise(base+8.08,.26,.032,1600);tone(base+8.28,420,.11,.015,'triangle',270);noise(base+8.31,.10,.015,2400);
+  paper(base+9.1,.8,.020);paper(base+10.8,.7,.016);
+  // river becomes rhythmic: pencil-scratch pulse turns into music
+  for(let t=12;t<15;t+=.375){paper(base+t,.07,.012);tone(base+t,110+(Math.floor((t-12)/.375)%4)*18,.11,.012,'triangle')}
+  noise(base+13.96,.34,.045,900);tone(base+14.02,67,.46,.060,'sine',36);
+  // canyon; sparse pulse then absolute cut at truth
+  for(let t=15.05;t<16.45;t+=.36)tone(base+t,92,.10,.012,'sine',75);
+  paper(base+16.72,.72,.036);noise(base+16.98,.20,.020,1900);noise(base+17.22,.38,.020,1050);
+  // understanding drop
+  tone(base+19.05,310,.22,.018,'sine',240);noise(base+19.15,.11,.010,700);
+  // return replays earlier timbres backwards in pitch
+  [19.68,19.92,20.16,20.40,20.64].forEach((t,i)=>{tone(base+t,510-i*62,.13,.025,'triangle',330-i*35);paper(base+t,.08,.010)});
+  // arrival / failed line
+  paper(base+21.3,.22,.015);paper(base+22.75,.50,.025);noise(base+23.75,.32,.018,650);
+  // sacrifice: long breath-like filtered noise + low tone
+  noise(base+24.55,2.9,.028,520);tone(base+24.62,82,2.6,.026,'sine',61);paper(base+25.45,.55,.014);paper(base+26.25,.70,.012);
+  // bloom: original single note becomes a chord, one note at a time as pigment spreads
+  [[27.62,196],[28.08,246.94],[28.48,293.66],[28.88,392],[29.34,493.88]].forEach(([t,f],i)=>tone(base+t,f,3.1-i*.22,.023+i*.0045,'sine'));
+  [27.82,28.30,28.72,29.12,29.60,30.05].forEach((t,i)=>paper(base+t,.16,.006+i*.0007));
+  for(let t=28;t<31.3;t+=.42)paper(base+t,.08,.005);
+}
+function stopAudio(){if(!ac)return;for(const n of audioNodes){try{if(n.stop)n.stop()}catch(e){}try{n.disconnect()}catch(e){}}audioNodes=[]}
+
+let current=0, playing=false, raf=0, wallStart=0;
+function syncUI(id){document.getElementById('scrub').value=current;document.getElementById('time').textContent=`${current.toFixed(1)} / 32.0s`;document.getElementById('shot').textContent=`SHOT ${id} · ${shotLabels[id]}`;document.getElementById('play').textContent=playing?'■ STOP':'▶ PLAY'}
+function tick(now){if(!playing)return;current=(now-wallStart)/1000;if(current>=TOTAL){current=TOTAL;playing=false;stopAudio();renderAt(TOTAL-.001);syncUI('18');return}const r=renderAt(current);syncUI(r.id);raf=requestAnimationFrame(tick)}
+async function play(){if(playing){playing=false;cancelAnimationFrame(raf);stopAudio();syncUI(sceneAt(current)[0]);return}ensureAudio();if(ac.state==='suspended')await ac.resume();stopAudio();scheduleAudio(current);playing=true;wallStart=performance.now()-current*1000;raf=requestAnimationFrame(tick);syncUI(sceneAt(current)[0])}
+document.getElementById('play').onclick=play;
+document.getElementById('scrub').oninput=e=>{if(playing){playing=false;cancelAnimationFrame(raf);stopAudio()}current=+e.target.value;const r=renderAt(Math.min(current,TOTAL-.001));syncUI(r.id)};
+document.getElementById('mute').onclick=()=>{ensureAudio();master.gain.value=master.gain.value>.01?0:.52;document.getElementById('mute').textContent=master.gain.value>.01?'🔊 SOUND':'🔇 MUTED'};
+document.getElementById('full').onclick=()=>document.documentElement.requestFullscreen?.();
+renderAt(0);syncUI('01');
+})();
+</script></body></html>
